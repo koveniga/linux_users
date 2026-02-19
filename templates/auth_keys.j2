@@ -1,0 +1,12 @@
+{% if users_db[user].auth_keys is defined %}
+{% set count = namespace(value=0) %}
+{%    for key in users_db[user].auth_keys.keys() %}
+{%        if users_db[user].auth_keys[key]['enabled'] %}
+{%            set count.value = count.value + 1 %}
+{%            if count.value>1 %}
+{{            ''  }}
+{%            endif %}
+{%            include './templates/ssh-keys/'+users_db[user].auth_keys[key]['datafile'] %}
+{%        endif %}
+{%    endfor %}
+{% endif %}

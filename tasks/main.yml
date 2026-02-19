@@ -1,0 +1,209 @@
+- name: setup default vars
+  set_fact:
+    present_users_on_repo_list: []
+    current_users_on_node_list: []
+    fact_users_role_behaviour: "{{ users_role_behaviour | default('manage_defined_only') }}"
+    fact_target_user_list: "{{ (target_user | default(''))|split(',') }}"
+  tags:
+    - always
+
+- name: collect users for node
+  set_fact:
+    present_users_on_repo_list: "{{ users | ansible-simplest-filters.custom_filters.subkey_dict_seek('enabled',True,'') }}"
+    absent_users_on_repo_list: "{{ users | ansible-simplest-filters.custom_filters.subkey_dict_seek('enabled',False,'') }}"
+  tags:
+    - always
+
+- name: collect current users on node
+  getent:
+    database: "passwd"
+  register: users_current
+  tags:
+    - always
+
+- name: populate current_users list with info from node and setup present_users
+  set_fact:
+    current_users_on_node_list: "{{ users_current.ansible_facts.getent_passwd.keys() }}"
+  tags:
+    - always
+
+- name: collect diff from current and must be present users (all_state_in_repo)
+  set_fact:
+    users_to_disable: "{{ (current_users_on_node_list | difference(present_users_on_repo_list)) }}"
+    new_users: "{{ present_users_on_repo_list | difference(current_users_on_node_list) }}"
+  when:
+    - fact_users_role_behaviour == 'all_state_in_repo'
+  tags:
+    - always
+
+- name: collect info by repo (manage_defined_only)
+  set_fact:
+    users_to_disable: "{{ current_users_on_node_list | intersect(absent_users_on_repo_list) }}"
+    new_users: "{{ present_users_on_repo_list | difference(current_users_on_node_list) }}"
+  when:
+    - fact_users_role_behaviour == 'manage_defined_only'
+  tags:
+    - always
+
+- name: set managed users variables
+  set_fact:
+    present_users_to_manage: "{{ present_users_on_repo_list }}"
+    users_to_manage_to_disable: "{{ users_to_disable }}"
+  tags:
+    - always
+
+- name: apply targeting logic
+  set_fact:
+    present_users_to_manage: "{{ present_users_on_repo_list | intersect(fact_target_user_list) }}"
+    users_to_manage_to_disable: "{{ users_to_disable | intersect(fact_target_user_list) }}"
+  when:
+    - target_user is defined
+  tags:
+    - always
+
+- name: Summary info
+  debug:
+    msg:
+      - "Users must be present on node:"
+      - "{{present_users_on_repo_list}}"
+      - "That users will be disabled on node:"
+      - "{{users_to_disable}}"
+      - "New users:"
+      - "{{new_users}}"
+      - "Present_users_to_manage:"
+      - "{{present_users_to_manage}}"
+      - "users_to_manage_to_disable:"
+      - "{{users_to_manage_to_disable}}"
+  tags:
+    - never
+    - show
+
+- name: "additional info for user"
+  debug:
+    msg:
+      - "user: {{ user }}"
+      - "shell: {{ users_db[user].user_shell | default('ERROR UNDEFINED') }}"
+      - "home: {{ users_db[user].user_home | default('ERROR UNDEFINED') }}"
+      - "passwd: {{ users_db[user].passwd | default('ERROR UNDEFINED') }}"
+      - "group: {{ (users_db[user].main_groupname | default('ERROR UNDEFINED')) | ansible-simplest-filters.custom_filters.compared_change('Debian',ansible_facts['os_family'],'wheel','sudo') | ansible-simplest-filters.custom_filters.compared_change('Astra Linux',ansible_facts['os_family'],'wheel','astra-admin') }}"
+      - "groups: {{ users_db[user] | ansible-simplest-filters.custom_filters.get_user_groups | ansible-simplest-filters.custom_filters.compared_change('Debian',ansible_facts['os_family'],'wheel','sudo') | ansible-simplest-filters.custom_filters.compared_change('Astra Linux',ansible_facts['os_family'],'wheel','astra-admin') }}"
+  loop: "{{ present_users_to_manage }}"
+  loop_control:
+    loop_var: "user"
+  tags:
+    - never
+    - show_modified
+
+- name: fail test
+  fail:
+    msg:
+      - "users_to_disable:"
+      - "{{users_to_disable}}"
+      - "New users:"
+      - "{{new_users}}"
+  when:
+    - new_users!=[] or users_to_disable!=[]
+  tags:
+    - never
+    - debug
+
+# Disabling users section
+- name: remove deprecated users
+  user:
+    name: "{{ item }}"
+    state: absent
+  loop: "{{ users_to_manage_to_disable }}"
+  tags:
+    - restrict_user
+# End disabling users section
+
+- name: setup users on node
+  user:
+    name: "{{ user }}"
+    shell: "{{ users_db[user].user_shell }}"
+    group: "{{ users_db[user].main_groupname | ansible-simplest-filters.custom_filters.compared_change('Debian',ansible_facts['os_family'],'wheel','sudo') | ansible-simplest-filters.custom_filters.compared_change('Astra Linux',ansible_facts['os_family'],'wheel','astra-admin') }}"
+    home: "{{ users_db[user].user_home }}"
+    password: "{{ users_db[user].passwd }}"
+    create_home: "{{ users_db[user].create_home | default(True) }}"
+    system: "{{ users_db[user].system | default(False) }}"
+  loop: "{{ present_users_to_manage }}"
+  loop_control:
+    loop_var: "user"
+  tags:
+    - target_user
+
+- name: setup groups for users
+  user:
+    name: "{{ user }}"
+    groups: "{{ users_db[user] | ansible-simplest-filters.custom_filters.get_user_groups | ansible-simplest-filters.custom_filters.compared_change('Debian',ansible_facts['os_family'],'wheel','sudo') | ansible-simplest-filters.custom_filters.compared_change('Astra Linux',ansible_facts['os_family'],'wheel','astra-admin') }}"
+    create_home: False
+  loop: "{{ present_users_to_manage }}"
+  loop_control:
+    loop_var: "user"
+  when:
+    - users_db[user].skip_setup_groups_task is undefined or users_db[user].skip_setup_groups_task==False
+  tags:
+    - target_user
+
+- name: create ssh dir for users
+  file:
+    state: "directory"
+    path: "{{users_db[user].user_home}}/.ssh"
+    owner: "{{ users_db[user].ssh_owner | default(user) }}"
+    group: "{{ users_db[user].ssh_group | default(user) }}"
+    mode: "{{ users_db[user].ssh_dir_mode | default('0700') }}"
+  loop: "{{ present_users_to_manage }}"
+  loop_control:
+    loop_var: "user"
+  when:
+    - users_db[user].ssh_dir_present is undefined or users_db[user].ssh_dir_present
+    - user=='root' and users_db[user].user_home=='/root' or user!='root' and users_db[user].user_home!='/root'
+  tags:
+    - target_user
+
+- name: "remove .ssh dir for users"
+  file:
+    state: "absent"
+    path: "{{users_db[user].user_home}}/.ssh"
+  loop: "{{ present_users_to_manage }}"
+  loop_control:
+    loop_var: "user"
+  when:
+    - users_db[user].ssh_dir_present is defined and users_db[user].ssh_dir_present==False
+    - user=='root' and users_db[user].user_home=='/root' or user!='root' and users_db[user].user_home!='/root'
+  tags:
+    - target_user
+
+- name: "setup auth key for users"
+  template:
+    src: "auth_keys.j2"
+    dest: "{{users_db[user].user_home}}/.ssh/authorized_keys"
+    owner: "{{ users_db[user].auth_keys_file_owner | default(user) }}"
+    group: "{{ users_db[user].auth_keys_file_group | default(user) }}"
+    mode: "{{ users_db[user].auth_keys_file_mode | default('0600') }}"
+  loop: "{{ present_users_to_manage }}"
+  loop_control:
+    loop_var: "user"
+  when:
+    - users_db[user].skip_auth_file_setup is undefined or users_db[user].skip_auth_file_setup==False
+    - users_db[user].no_auth_file is undefined or users_db[user].no_auth_file==False
+    - users_db[user].ssh_dir_present is undefined or users_db[user].ssh_dir_present
+    - user=='root' and users_db[user].user_home=='/root' or user!='root' and users_db[user].user_home!='/root'
+    - not_check_ssh_keys is undefined or not_check_ssh_keys==False
+    - users_db[user].no_auth_file is undefined or users_db[user].no_auth_file==False
+  tags:
+    - target_user
+    - authkeys_all
+    - authkeys_target
+
+- name: Astra Hook --> set ilevel directly for declared users
+  shell:
+    cmd: "pdpl-user -i {{ users_db[user].astra_ilevel }} {{user}}"
+  args:
+    executable: bash
+  loop: "{{ present_users_to_manage }}"
+  loop_control:
+    loop_var: "user"
+  when:
+    - ansible_facts['os_family'] == 'Astra Linux'
+    - users_db[user].astra_ilevel is defined

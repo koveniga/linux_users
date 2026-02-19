@@ -1,0 +1,9 @@
+galaxy_info:
+  author: KovenkovIA
+  description: manage system users on Linux hosts
+  company: Self
+  license: 'AS-IS'
+  min_ansible_version: 2.15
+  galaxy_tags: []
+
+dependencies: []
