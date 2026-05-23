@@ -9,8 +9,8 @@
 
 - name: collect users for node
   set_fact:
-    present_users_on_repo_list: "{{ users | ansible-simplest-filters.custom_filters.subkey_dict_seek('enabled',True,'') }}"
-    absent_users_on_repo_list: "{{ users | ansible-simplest-filters.custom_filters.subkey_dict_seek('enabled',False,'') }}"
+    present_users_on_repo_list: "{{ users | js.simplest_filters.subkey_dict_seek('enabled',True,'') }}"
+    absent_users_on_repo_list: "{{ users | js.simplest_filters.subkey_dict_seek('enabled',False,'') }}"
   tags:
     - always
 
@@ -85,8 +85,8 @@
       - "shell: {{ users_db[user].user_shell | default('ERROR UNDEFINED') }}"
       - "home: {{ users_db[user].user_home | default('ERROR UNDEFINED') }}"
       - "passwd: {{ users_db[user].passwd | default('ERROR UNDEFINED') }}"
-      - "group: {{ (users_db[user].main_groupname | default('ERROR UNDEFINED')) | ansible-simplest-filters.custom_filters.compared_change('Debian',ansible_facts['os_family'],'wheel','sudo') | ansible-simplest-filters.custom_filters.compared_change('Astra Linux',ansible_facts['os_family'],'wheel','astra-admin') }}"
-      - "groups: {{ users_db[user] | ansible-simplest-filters.custom_filters.get_user_groups | ansible-simplest-filters.custom_filters.compared_change('Debian',ansible_facts['os_family'],'wheel','sudo') | ansible-simplest-filters.custom_filters.compared_change('Astra Linux',ansible_facts['os_family'],'wheel','astra-admin') }}"
+      - "group: {{ (users_db[user].main_groupname | default('ERROR UNDEFINED')) | js.simplest_filters.compared_change('Debian',ansible_facts['os_family'],'wheel','sudo') | js.simplest_filters.compared_change('Astra Linux',ansible_facts['os_family'],'wheel','astra-admin') }}"
+      - "groups: {{ users_db[user] | js.simplest_filters.get_user_groups | js.simplest_filters.compared_change('Debian',ansible_facts['os_family'],'wheel','sudo') | js.simplest_filters.compared_change('Astra Linux',ansible_facts['os_family'],'wheel','astra-admin') }}"
   loop: "{{ present_users_to_manage }}"
   loop_control:
     loop_var: "user"
@@ -121,7 +121,7 @@
   user:
     name: "{{ user }}"
     shell: "{{ users_db[user].user_shell }}"
-    group: "{{ users_db[user].main_groupname | ansible-simplest-filters.custom_filters.compared_change('Debian',ansible_facts['os_family'],'wheel','sudo') | ansible-simplest-filters.custom_filters.compared_change('Astra Linux',ansible_facts['os_family'],'wheel','astra-admin') }}"
+    group: "{{ users_db[user].main_groupname | js.simplest_filters.compared_change('Debian',ansible_facts['os_family'],'wheel','sudo') | js.simplest_filters.compared_change('Astra Linux',ansible_facts['os_family'],'wheel','astra-admin') }}"
     home: "{{ users_db[user].user_home }}"
     password: "{{ users_db[user].passwd }}"
     create_home: "{{ users_db[user].create_home | default(True) }}"
@@ -135,7 +135,7 @@
 - name: setup groups for users
   user:
     name: "{{ user }}"
-    groups: "{{ users_db[user] | ansible-simplest-filters.custom_filters.get_user_groups | ansible-simplest-filters.custom_filters.compared_change('Debian',ansible_facts['os_family'],'wheel','sudo') | ansible-simplest-filters.custom_filters.compared_change('Astra Linux',ansible_facts['os_family'],'wheel','astra-admin') }}"
+    groups: "{{ users_db[user] | js.simplest_filters.get_user_groups | js.simplest_filters.compared_change('Debian',ansible_facts['os_family'],'wheel','sudo') | js.simplest_filters.compared_change('Astra Linux',ansible_facts['os_family'],'wheel','astra-admin') }}"
     create_home: False
   loop: "{{ present_users_to_manage }}"
   loop_control:
